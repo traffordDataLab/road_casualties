@@ -60,6 +60,7 @@ casualties <- casualties %>%
                       " a ", tolower(collision_severity), " collision occured involving ", 
                       NumberVehicles, ifelse(NumberVehicles == 1, " vehicle and ", " vehicles and "), CasualtyNumber, 
                       ifelse(CasualtyNumber == 1, " casualty.", " casualties.")))
+
 # rename variables ---------------------------
 casualties <- select(casualties, AREFNO = `Accident Index`, date, year, month, day, 
                      hour, mode, collision_severity, casualty_severity, sex, ageband, 
