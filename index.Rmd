@@ -156,13 +156,15 @@ ggplot(df, aes(x = fct_reorder(area_name, value, .desc = TRUE), y = value)) +
   scale_y_continuous(expand = c(0.005, 0.005), 
                      breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
   labs(x = NULL, y = NULL,
-       title = "Casualties by borough") +
+       title = paste0("Casualties by borough, ", input$year),
+       caption = "Source: TfGM") +
   coord_flip() +
   theme_minimal(base_size = 20) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.y = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold"),
+        plot.caption = element_text(color = "grey50"),
         axis.title.y = element_text(hjust = 1))
   
 })
@@ -199,12 +201,14 @@ ggplot(df, aes(x = month, y = value)) +
  scale_y_continuous(expand = c(0.005, 0.005), 
                      breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
   labs(x = NULL, y = NULL, fill = NULL,
-       title = "Casualties by month and severity") +
+       title = paste0("Casualties by month and severity, ", input$year),
+       caption = "Source: TfGM") +
   theme_minimal(base_size = 20) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold"),
+        plot.caption = element_text(color = "grey50"),
         axis.title.y = element_text(hjust = 1),
         legend.position = "bottom")
 
@@ -246,12 +250,14 @@ ggplot(df, aes(x = factor(hour), y = fct_rev(day))) +
   scale_x_discrete(breaks = 0:23, labels = 0:23, drop = FALSE) + 
   scale_y_discrete(expand = c(0,0)) +
   labs(x = NULL, y = NULL, fill = NULL, 
-       title = "Casualties by day and hour") +
+       title = paste0("Casualties by day and hour, ", input$year),
+       caption = "Source: TfGM") +
   theme_minimal(base_size = 20) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold"),
+        plot.caption = element_text(color = "grey50"),
         legend.position = "bottom") +
   coord_equal(ratio = 0.5)
 
@@ -288,14 +294,15 @@ df <- left_join(empty, temp, by = "id") %>%
   scale_fill_manual(values = 
                       c("Female" = "#66668C",
                         "Male" = "#BC9D6D")) +
-  labs(x = NULL, y = NULL, 
-       title = "Casualties by ageband and gender",
-       fill = NULL) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       title = paste0("Casualties by ageband and gender, ", input$year),
+       caption = "Source: TfGM") +
   theme_minimal(base_size = 20) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold"),
+        plot.caption = element_text(color = "grey50"),
         axis.title.y = element_text(hjust = 1),
         legend.position = "bottom")
   
