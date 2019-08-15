@@ -1,0 +1,310 @@
+---
+title: "Road casualties in GM"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    theme: readable
+    logo: trafford_council_logo_black_on_white_100px.png
+    css: styles.css
+    source_code: "https://github.com/trafforddatalab/road_casualties"
+    includes:
+      after_body: footer.html
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(tidyverse) ; library(flexdashboard) ; library(shiny) ;  library(sf) ; library(leaflet) ;  library(scales) 
+
+df <- read_csv("data/STATS19_road_casualties_2005-2018.csv") 
+boundaries <- st_read("data/gm_local_authority_generalised.geojson")
+```
+
+```{r reactive}
+casualties <- reactive({
+  if (is.null(input$borough))
+    filter(df, year == input$year &
+             mode %in% input$mode &
+             casualty_severity %in% input$severity)
+  else
+    filter(df, year == input$year &
+             area_name %in% input$borough &
+             mode %in% input$mode &
+             casualty_severity %in% input$severity)
+})
+
+collisions <- reactive({distinct(casualties(), AREFNO, .keep_all = TRUE)})
+
+data_in_bounds <- reactive({
+        if (is.null(input$map_bounds))
+        return(df[FALSE,])
+        bounds <- input$map_bounds
+        latRng <- range(bounds$north, bounds$south)
+        lngRng <- range(bounds$east, bounds$west)
+        
+        filter(casualties(),
+        lat >= latRng[1] & lat <= latRng[2] &
+        lon >= lngRng[1] & lon <= lngRng[2])
+})
+```
+
+Home
+=====================================  
+
+Filter {.sidebar}
+-------------------------------------
+
+```{r}
+selectInput("year", 
+            label = "Year", 
+            choices = 2005:2018,
+            selected = 2018)
+
+selectInput("borough", 
+            label = "Borough", 
+            choices = c("All" = "", unique(df$area_name)),
+            multiple = TRUE)
+
+selectInput("mode", 
+            label = "Mode of travel",
+            choices = unique(df$mode),
+            selected = "Pedal Cycle", 
+            multiple = TRUE)
+
+selectInput("severity", 
+            label = "Casualty severity",
+            choices = unique(df$casualty_severity),
+            selected = c("Fatal", "Serious", "Slight"), 
+            multiple = TRUE)
+```
+
+Row {data-height=50}
+-------------------------------------
+
+### {.no-mobile}
+```{r}
+renderUI({
+  df <- data_in_bounds()
+  HTML(paste0("<strong>", format(nrow(df), format = "d", big.mark = ","), " </strong>casualties"))
+})
+```
+
+### {.no-mobile}
+```{r}
+renderUI({
+  df <- data_in_bounds() %>%
+    filter(casualty_severity == "Fatal" | casualty_severity == "Serious")
+  HTML(paste0("<strong>", format(nrow(df), format = "d", big.mark = ","), "</strong> KSIs"))
+})
+```
+
+### {.no-mobile}
+```{r}
+renderUI({
+  df <- data_in_bounds() %>% 
+    distinct(AREFNO)
+  HTML(paste0("<strong>", format(nrow(df), format = "d", big.mark = ","), " </strong>collisions"))
+})
+
+```
+
+Row 
+-------------------------------------
+
+### Collision map
+```{r}
+pal <- colorFactor(c("#b10026", "#fd8d3c", "#ffeda0"), domain = c("Fatal", "Serious", "Slight"), ordered = TRUE)
+
+output$map <- renderLeaflet({
+  leaflet(data = collisions()) %>%
+    addTiles(urlTemplate = "https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png",
+               attribution = '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>, <a href="http://cartodb.com/attributions">CartoDB</a> | <a href="https://www.ons.gov.uk/methodology/geography/licences">Contains OS data © Crown copyright and database right (2019)</a>',
+               group = "CartoDB",
+               options = providerTileOptions(minZoom = 10, maxZoom = 16)) %>%
+    addPolygons(data = boundaries, fill = F, color = "#636363", weight = 1.5) %>% 
+    addCircleMarkers(~lon, ~lat, 
+                         color = "#636363", stroke = TRUE, weight = 1, 
+                         fillColor = ~pal(collision_severity), fillOpacity = 0.8, 
+                         radius = 5, popup = ~text) %>% 
+    fitBounds(lng1 = max(collisions()$lon), lat1 = max(collisions()$lat),
+              lng2 = min(collisions()$lon), lat2 = min(collisions()$lat)) %>% 
+    addLegend(position = "bottomright", colors = c("#b10026", "#fd8d3c", "#ffeda0"),
+              labels = c("Fatal", "Serious", "Slight"), opacity = 1, title = NULL)
+  })
+
+observe({
+  leafletProxy('map', session) %>%
+    clearMarkers()
+  })
+
+leafletOutput("map") 
+```   
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+
+### Boroughs
+```{r}
+output$boroughs<- renderPlot({
+
+  df <- data_in_bounds() %>% 
+    group_by(area_name) %>%
+    summarise(value = n())
+  
+ggplot(df, aes(x = fct_reorder(area_name, value, .desc = TRUE), y = value)) +
+  geom_col(fill = "#7fcdbb") +
+  geom_hline(yintercept = 0, size = 1, colour = "#333333") +
+  scale_y_continuous(expand = c(0.005, 0.005), 
+                     breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
+  labs(x = NULL, y = NULL,
+       title = "Casualties by borough") +
+  coord_flip() +
+  theme_minimal(base_size = 20) +
+  theme(plot.margin = unit(c(1,1,1,1), "cm"),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(face = "bold"),
+        axis.title.y = element_text(hjust = 1))
+  
+})
+
+plotOutput('boroughs')
+```   
+
+### Months
+```{r}
+output$months <- renderPlot({
+
+empty <- tibble(casualty_severity = c(rep("Slight", 12), rep("Serious", 12), rep("Fatal", 12)),
+                month = rep(month.abb, 3)) %>% 
+  mutate(id = paste(casualty_severity, month, sep = '_'))
+
+temp <- data_in_bounds() %>%
+  group_by(casualty_severity, month) %>%
+  summarise(value = n()) %>% 
+  ungroup() %>% 
+  mutate(id = paste(casualty_severity, month, sep = '_')) %>%
+  select(-casualty_severity, -month)
+
+df <- left_join(empty, temp, by = "id") %>% 
+  mutate(month = factor(month, levels = month.abb))
+  
+ggplot(df, aes(x = month, y = value)) +
+  geom_col(aes(fill = factor(casualty_severity)), size = 1.5) +
+  geom_hline(yintercept = 0, size = 1, colour = "#333333") +
+  scale_fill_manual(values = 
+                      c("Fatal" = "#b10026",
+                        "Serious" = "#fd8d3c",
+                        "Slight" = "#ffeda0"),
+                    drop = FALSE) +
+ scale_y_continuous(expand = c(0.005, 0.005), 
+                     breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       title = "Casualties by month and severity") +
+  theme_minimal(base_size = 20) +
+  theme(plot.margin = unit(c(1,1,1,1), "cm"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(face = "bold"),
+        axis.title.y = element_text(hjust = 1),
+        legend.position = "bottom")
+
+})
+
+plotOutput('months')
+```   
+ 
+### Hours
+```{r}
+output$hours <- renderPlot({
+
+empty <- tibble(day = c(rep("Mon", 24), rep("Tue", 24), rep("Wed", 24),
+               rep("Thu", 24), rep("Fri", 24), rep("Sat", 24),
+               rep("Sun", 24)),
+       hour = rep(seq(0, 23, by = 1), 7)) %>% 
+  mutate(id = paste(day, hour, sep = '_'))
+  
+temp <- data_in_bounds() %>%
+  group_by(day, hour) %>%
+  summarise(value = n()) %>% 
+  ungroup() %>% 
+  mutate(id = paste(day, hour, sep = '_')) %>%
+  select(-day, -hour)
+
+df <- left_join(empty, temp, by = "id") %>% 
+  mutate(day = factor(day, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), ordered = TRUE),
+         hour = factor(hour))
+
+ggplot(df, aes(x = factor(hour), y = fct_rev(day))) +
+  geom_tile(aes(fill = value), colour = "white", size = 2) + 
+  scale_fill_distiller(palette = "Blues", direction = 1, na.value = "#EBEDF0",
+                       limits = c(1, NA),
+                       breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))),
+                       guide = guide_colorbar(direction = "horizontal",
+                                              barheight = unit(2, units = "mm"), 
+                                              barwidth = unit(120, units = "mm"),
+                                              label.hjust = 0.5)) +
+  scale_x_discrete(breaks = 0:23, labels = 0:23, drop = FALSE) + 
+  scale_y_discrete(expand = c(0,0)) +
+  labs(x = NULL, y = NULL, fill = NULL, 
+       title = "Casualties by day and hour") +
+  theme_minimal(base_size = 20) +
+  theme(plot.margin = unit(c(1,1,1,1), "cm"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(face = "bold"),
+        legend.position = "bottom") +
+  coord_equal(ratio = 0.5)
+
+})
+
+plotOutput('hours')
+```
+
+### Demographics
+```{r}
+output$demographics <- renderPlot({
+  
+empty <- tibble(sex = c(rep("Female", 11), rep("Male", 11)),
+                ageband = rep(c("0-5","6-10","11-15","16-20","21-25","26-35","36-45","46-55","56-65",
+                                "66-75","Over 75"), 2)) %>% 
+  mutate(id = paste(sex, ageband, sep = '_'))
+
+temp <- data_in_bounds() %>%
+     group_by(sex, ageband) %>%
+  summarise(value = n()) %>%
+  ungroup() %>% 
+  mutate(id = paste(sex, ageband, sep = '_')) %>%
+  select(-sex, -ageband)
+
+df <- left_join(empty, temp, by = "id") %>% 
+  mutate(sex = factor(sex),
+         ageband = fct_relevel(ageband, "0-5", "6-10"))
+  
+  ggplot(df, aes(x = ageband, y = value, group = sex, fill = sex)) + 
+  geom_col(position = "dodge", alpha = 0.8) +
+      geom_hline(yintercept = 0, size = 1, colour = "#333333") +
+    scale_y_continuous(expand = c(0.005, 0.005), 
+                     breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
+  scale_fill_manual(values = 
+                      c("Female" = "#66668C",
+                        "Male" = "#BC9D6D")) +
+  labs(x = NULL, y = NULL, 
+       title = "Casualties by ageband and gender",
+       fill = NULL) +
+  theme_minimal(base_size = 20) +
+  theme(plot.margin = unit(c(1,1,1,1), "cm"),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(face = "bold"),
+        axis.title.y = element_text(hjust = 1),
+        legend.position = "bottom")
+  
+})
+
+plotOutput('demographics')
+```
+
+About
+=====================================  
+
+This application allows users to explore road collisions involving personal injury that were reported in Greater Manchester between 2005 and 2018. The data derive from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Transport for Greater Manchester</a> under an <a href="http://odata.tfgm.com/opendata/downloads/Licences/FreeToUseData_SubLicence_G_v12.pdf">OS "Free to Use Data" Licence</a>.

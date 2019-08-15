@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css?family=Open+Sans');
+
+@font-face {
+  font-family: 'Open Sans', sans-serif;
+}
+
+div {
+  font-family: 'Open Sans', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6, .header {
+  font-family: 'Open Sans', sans-serif;
+}
+
+a {
+  color: #fc6721;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #fc6721;
+  text-decoration: underline;
+}
+
+.navbar-logo {
+     max-width:60px;
+     max-height:60px;
+}
+
+/* show points in Leaflet map legend */
+.leaflet .legend i{
+      border-radius: 50%;
+      width: 10px;
+      height: 10px;
+      margin-top: 4px;
+}
