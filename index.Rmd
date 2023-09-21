@@ -12,109 +12,104 @@ output:
 runtime: shiny
 ---
 
-```{r setup, include=FALSE}
-library(tidyverse) ; library(flexdashboard) ; library(shiny) ;  library(sf) ; library(leaflet) ;  library(scales) 
 
-df <- read_csv("data/STATS19_road_casualties_2005-2018.csv") 
+```{r setup, include=FALSE}
+library(tidyverse) ; library(flexdashboard) ; library(shiny) ;  library(sf) ; library(leaflet) ;  library(scales) ; library(shinyWidgets) ; library(plotly)
+
+df <- read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19_road_casualties_2010-2021.csv") %>% 
+  mutate(text = str_c("On ", format.Date(date, "%A %d %B %Y"), " at ", format(strptime(output_time,"%H:%M:%S"),'%H:%M'),
+                      " a ", tolower(collision_severity), " collision occured involving ", 
+                      number_vehicles, ifelse(number_vehicles == 1, " vehicle and ", " vehicles and "), number_casualties, 
+                      ifelse(number_casualties == 1, " casualty.", " casualties.")))
+
 boundaries <- st_read("data/gm_local_authority_generalised.geojson")
+
 ```
 
 ```{r reactive}
 casualties <- reactive({
-  if (is.null(input$borough))
-    filter(df, year == input$year &
-             mode %in% input$mode &
-             casualty_severity %in% input$severity)
-  else
-    filter(df, year == input$year &
+  
+  if((is.null(input$borough) & is.null(input$mode) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month)}else 
+  if((is.null(input$borough) & is.null(input$mode))){filter(df, date >= input$start_month &  date <= input$end_month &
+             casualty_severity %in% input$severity)}else 
+  if((is.null(input$borough) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month &
+              mode %in% input$mode)}else 
+  if((is.null(input$mode) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month &
+              area_name %in% input$borough)}else 
+  if((is.null(input$borough))){filter(df, date >= input$start_month &  date <= input$end_month &
+              mode %in% input$mode &
+              casualty_severity %in% input$severity)}else 
+  if((is.null(input$mode))){filter(df, date >= input$start_month &  date <= input$end_month &
+            area_name %in% input$borough &
+            casualty_severity %in% input$severity)}else 
+  if((is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month &
+            area_name %in% input$borough &
+            mode %in% input$mode)}else {
+    filter(df, date >= input$start_month &  date <= input$end_month &
              area_name %in% input$borough &
              mode %in% input$mode &
              casualty_severity %in% input$severity)
+  }
 })
 
 collisions <- reactive({distinct(casualties(), AREFNO, .keep_all = TRUE)})
 
-data_in_bounds <- reactive({
-        if (is.null(input$map_bounds))
-        return(df[FALSE,])
-        bounds <- input$map_bounds
-        latRng <- range(bounds$north, bounds$south)
-        lngRng <- range(bounds$east, bounds$west)
-        
-        filter(casualties(),
-        lat >= latRng[1] & lat <= latRng[2] &
-        lon >= lngRng[1] & lon <= lngRng[2])
-})
+
 ```
 
-Home
-=====================================  
-
-Filter {.sidebar}
--------------------------------------
+Filter {.sidebar data-width=200}
+=======================================================================
 
 ```{r}
-selectInput("year", 
-            label = "Year", 
-            choices = 2005:2018,
-            selected = 2018)
+
+airDatepickerInput("start_month",
+                     label = "Start month",
+                     value = "2021-01-01",
+                     maxDate = "2021-12-31",
+                     minDate = "2010-01-01",
+                     view = "months", 
+                     minView = "months", 
+                     dateFormat = "yyyy-MM")
+
+airDatepickerInput("end_month",
+                     label = "End month",
+                     value = "2021-12-31",
+                     maxDate = "2021-12-31",
+                     minDate = "2010-01-01",
+                     view = "months", 
+                     minView = "months", 
+                     dateFormat = "yyyy-MM")
 
 selectInput("borough", 
-            label = "Borough", 
+            label = "Local Authority", 
             choices = c("All" = "", unique(df$area_name)),
             multiple = TRUE)
 
 selectInput("mode", 
             label = "Mode of travel",
-            choices = unique(df$mode),
-            selected = "Pedal Cycle", 
+            choices = c("All" = "", unique(df$mode)),
             multiple = TRUE)
 
 selectInput("severity", 
             label = "Casualty severity",
-            choices = unique(df$casualty_severity),
-            selected = c("Fatal", "Serious", "Slight"), 
+            choices = c("All" = "", unique(df$casualty_severity)),
             multiple = TRUE)
-```
 
-Row {data-height=50}
--------------------------------------
-
-### {.no-mobile}
-```{r}
-renderUI({
-  df <- data_in_bounds()
-  HTML(paste0("<strong>", format(nrow(df), format = "d", big.mark = ","), " </strong>casualties"))
-})
-```
-
-### {.no-mobile}
-```{r}
-renderUI({
-  df <- data_in_bounds() %>%
-    filter(casualty_severity == "Fatal" | casualty_severity == "Serious")
-  HTML(paste0("<strong>", format(nrow(df), format = "d", big.mark = ","), "</strong> KSIs"))
-})
-```
-
-### {.no-mobile}
-```{r}
-renderUI({
-  df <- data_in_bounds() %>% 
-    distinct(AREFNO)
-  HTML(paste0("<strong>", format(nrow(df), format = "d", big.mark = ","), " </strong>collisions"))
-})
 
 ```
 
-Row 
--------------------------------------
+Map
+=====================================  
 
-### Collision map
+
+### Road Accidents by most severe casualty (Accidents could have one or more casualties with different severity each) {data-width=700}
 ```{r}
 pal <- colorFactor(c("#b10026", "#fd8d3c", "#ffeda0"), domain = c("Fatal", "Serious", "Slight"), ordered = TRUE)
 
-output$map <- renderLeaflet({
+output$map1 <- renderLeaflet({
+  
+  validate(need(nrow(collisions())!=0, "There are no matches in the dataset. Choose other categories"))
+  
   leaflet(data = collisions()) %>%
     addTiles(urlTemplate = "https://cartodb-basemaps-{s}.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png",
                attribution = '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>, <a href="http://cartodb.com/attributions">CartoDB</a> | <a href="https://www.ons.gov.uk/methodology/geography/licences">Contains OS data © Crown copyright and database right (2019)</a>',
@@ -131,56 +126,84 @@ output$map <- renderLeaflet({
               labels = c("Fatal", "Serious", "Slight"), opacity = 1, title = NULL)
   })
 
-observe({
-  leafletProxy('map', session) %>%
-    clearMarkers()
+leafletOutput("map1")
+
+observeEvent(input$active_tab, {
+  if (input$active_tab == 0) {
+
+  leafletProxy("map1", session) 
+
+  }
   })
 
-leafletOutput("map") 
 ```   
 
-Row {.tabset .tabset-fade}
--------------------------------------
+### By Local authority {data-width=340}
 
-### Boroughs
 ```{r}
-output$boroughs<- renderPlot({
-
-  df <- data_in_bounds() %>% 
+renderTable({
+  collisions() %>%
     group_by(area_name) %>%
-    summarise(value = n())
+    summarise(collisions = n(), casualties = sum(number_casualties)) %>%
+    arrange(desc(collisions)) %>%
+    select("Local Authority" = area_name, "Accidents" = collisions, "Casualties" = casualties) %>%
+    as.data.frame()
+}, digits = 0)
+
+
+```
+
+Charts
+=====================================
+
+Row
+-----------------------------------------------------------------------
+
+### Trend
+```{r}
+output$timeline <- renderPlot({
   
-ggplot(df, aes(x = fct_reorder(area_name, value, .desc = TRUE), y = value)) +
-  geom_col(fill = "#7fcdbb") +
+empty <-  tibble(date= seq(input$start_month, input$end_month, by = "1 months"))
+
+temp <- casualties() %>%
+  group_by(date = lubridate::floor_date(date, "month")) %>%
+    summarize(value = n())
+
+df <- left_join(empty, temp, by = "date") %>%
+  replace_na(list(value = 0))
+  
+ggplot(df, aes(x = date, y = value)) +
+  geom_line(size = 1.5, color = "#0A3182") +
   geom_hline(yintercept = 0, size = 1, colour = "#333333") +
-  scale_y_continuous(expand = c(0.005, 0.005), 
+ scale_y_continuous(expand = c(0.005, 0.005), 
                      breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
-  labs(x = NULL, y = NULL,
-       title = paste0("Casualties by borough, ", input$year),
-       caption = "Source: TfGM") +
-  coord_flip() +
-  theme_minimal(base_size = 20) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       title = "Casualties", 
+       caption = paste0(format(input$start_month,"%h-%Y"), " to ", format(input$end_month,"%h-%Y")," Source: TfGM")) +
+  theme_minimal(base_size = 10) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
-        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold"),
         plot.caption = element_text(color = "grey50"),
-        axis.title.y = element_text(hjust = 1))
-  
+        axis.title.y = element_text(hjust = 1),
+        legend.position = "bottom")
+
 })
 
-plotOutput('boroughs')
-```   
+plotOutput('timeline')
 
-### Months
+```
+
+### By Month
 ```{r}
-output$months <- renderPlot({
+output$months2 <- renderPlot({
 
 empty <- tibble(casualty_severity = c(rep("Slight", 12), rep("Serious", 12), rep("Fatal", 12)),
                 month = rep(month.abb, 3)) %>% 
   mutate(id = paste(casualty_severity, month, sep = '_'))
 
-temp <- data_in_bounds() %>%
+temp <- casualties() %>%
   group_by(casualty_severity, month) %>%
   summarise(value = n()) %>% 
   ungroup() %>% 
@@ -197,27 +220,36 @@ ggplot(df, aes(x = month, y = value)) +
                       c("Fatal" = "#b10026",
                         "Serious" = "#fd8d3c",
                         "Slight" = "#ffeda0"),
-                    drop = FALSE) +
+                    drop = FALSE,
+                    guide = guide_legend(keyheight = unit(5, units = "mm"), 
+                                            keywidth=unit(5, units = "mm")) ) +
  scale_y_continuous(expand = c(0.005, 0.005), 
                      breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
   labs(x = NULL, y = NULL, fill = NULL,
-       title = paste0("Casualties by month and severity, ", input$year),
-       caption = "Source: TfGM") +
-  theme_minimal(base_size = 20) +
+       title = "Casualties by month and severity", 
+      caption = paste0(format(input$start_month,"%h-%Y"), " to ", format(input$end_month,"%h-%Y")," Source: TfGM")) +
+  theme_minimal(base_size = 10) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold"),
         plot.caption = element_text(color = "grey50"),
         axis.title.y = element_text(hjust = 1),
-        legend.position = "bottom")
+        legend.position = "right")
+
 
 })
 
-plotOutput('months')
-```   
- 
-### Hours
+
+plotOutput('months2')
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### By Hour
+
 ```{r}
 output$hours <- renderPlot({
 
@@ -227,7 +259,7 @@ empty <- tibble(day = c(rep("Mon", 24), rep("Tue", 24), rep("Wed", 24),
        hour = rep(seq(0, 23, by = 1), 7)) %>% 
   mutate(id = paste(day, hour, sep = '_'))
   
-temp <- data_in_bounds() %>%
+temp <- casualties() %>%
   group_by(day, hour) %>%
   summarise(value = n()) %>% 
   ungroup() %>% 
@@ -239,27 +271,27 @@ df <- left_join(empty, temp, by = "id") %>%
          hour = factor(hour))
 
 ggplot(df, aes(x = factor(hour), y = fct_rev(day))) +
-  geom_tile(aes(fill = value), colour = "white", size = 2) + 
-  scale_fill_distiller(palette = "Blues", direction = 1, na.value = "#EBEDF0",
+  geom_tile(aes(fill = value), colour = "white", size = 1) + 
+  scale_fill_distiller(palette = "Blues", direction = 1, na.value = "#ffffff",
                        limits = c(1, NA),
                        breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))),
-                       guide = guide_colorbar(direction = "horizontal",
-                                              barheight = unit(2, units = "mm"), 
-                                              barwidth = unit(120, units = "mm"),
+                       guide = guide_colorbar(direction = "vertical",
+                                              #barheight = unit(2, units = "mm"), 
+                                              barwidth = unit(3, units = "mm"),
                                               label.hjust = 0.5)) +
   scale_x_discrete(breaks = 0:23, labels = 0:23, drop = FALSE) + 
   scale_y_discrete(expand = c(0,0)) +
   labs(x = NULL, y = NULL, fill = NULL, 
-       title = paste0("Casualties by day and hour, ", input$year),
-       caption = "Source: TfGM") +
-  theme_minimal(base_size = 20) +
+       title = "Casualties by week day and hour", 
+              caption = paste0(format(input$start_month,"%h-%Y"), " to ", format(input$end_month,"%h-%Y")," Source: TfGM")) +
+  theme_minimal(base_size = 10) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold"),
         plot.caption = element_text(color = "grey50"),
-        legend.position = "bottom") +
-  coord_equal(ratio = 0.5)
+        legend.position = "right") +
+  coord_equal(ratio = 1)
 
 })
 
@@ -267,6 +299,7 @@ plotOutput('hours')
 ```
 
 ### Demographics
+
 ```{r}
 output$demographics <- renderPlot({
   
@@ -275,7 +308,7 @@ empty <- tibble(sex = c(rep("Female", 11), rep("Male", 11)),
                                 "66-75","Over 75"), 2)) %>% 
   mutate(id = paste(sex, ageband, sep = '_'))
 
-temp <- data_in_bounds() %>%
+temp <- casualties() %>%
      group_by(sex, ageband) %>%
   summarise(value = n()) %>%
   ungroup() %>% 
@@ -292,12 +325,14 @@ df <- left_join(empty, temp, by = "id") %>%
     scale_y_continuous(expand = c(0.005, 0.005), 
                      breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
   scale_fill_manual(values = 
-                      c("Female" = "#66668C",
-                        "Male" = "#BC9D6D")) +
+                      c("Female" = "#194a81",
+                        "Male" = "#1d85a5"),
+                    guide = guide_legend(keyheight = unit(3, units = "mm"), 
+                                            keywidth=unit(5, units = "mm")) ) +
   labs(x = NULL, y = NULL, fill = NULL,
-       title = paste0("Casualties by ageband and gender, ", input$year),
-       caption = "Source: TfGM") +
-  theme_minimal(base_size = 20) +
+       title = "Casualties by ageband and sex", 
+      caption = paste0(format(input$start_month,"%h-%Y"), " to ", format(input$end_month,"%h-%Y")," Source: TfGM")) +
+  theme_minimal(base_size = 10) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor = element_blank(),
@@ -309,9 +344,20 @@ df <- left_join(empty, temp, by = "id") %>%
 })
 
 plotOutput('demographics')
+
 ```
 
 About
 =====================================  
 
-This application allows users to explore road collisions involving personal injury that were reported in Greater Manchester between 2005 and 2018. The data derive from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Transport for Greater Manchester</a> under an <a href="http://odata.tfgm.com/opendata/downloads/Licences/FreeToUseData_SubLicence_G_v12.pdf">OS "Free to Use Data" Licence</a>.
+This application allows users to explore road collisions involving personal injury that were reported in Greater Manchester between 2010 and 2021. The data derive from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Transport for Greater Manchester</a> under an <a href="http://odata.tfgm.com/opendata/downloads/Licences/FreeToUseData_SubLicence_G_v12.pdf">OS "Free to Use Data" Licence</a>.
+
+<script>
+$(document).ready(function(){
+  $("body").on("shown.bs.tab", "a[data-toggle='tab']", function(e) {
+    Shiny.setInputValue("active_tab", $(e.target).parent().index(), {priority: "event"});
+  });
+});
+</script>
+
+
