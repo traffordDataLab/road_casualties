@@ -20,7 +20,7 @@ library(tidyverse) ; library(flexdashboard) ; library(shiny) ;  library(sf) ; li
   df <- read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19_road_casualties_2010-2021.csv") %>% 
     mutate(AREFNO = as.character(AREFNO)) %>% 
     filter(!year %in% c(2019,2020,2021)) %>%
-    bind_rows(read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19_road_casualties_2019-Jun2024.csv") ) %>%
+    bind_rows(read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19_road_casualties_2019-Jun2024.csv") %>% filter(!year %in% c(2024))) %>%
   mutate(text = str_c("On ", format.Date(date, "%A %d %B %Y"), " at ", format(strptime(output_time,"%H:%M:%S"),'%H:%M'),
                       " a ", tolower(collision_severity), " collision occured involving ", 
                       number_vehicles, ifelse(number_vehicles == 1, " vehicle and ", " vehicles and "), number_casualties, 
@@ -69,8 +69,8 @@ Filter {.sidebar data-width=200}
 
 airDatepickerInput("start_month",
                      label = "Start month",
-                     value = "2024-01-01",
-                     maxDate = "2024-06-30",
+                     value = "2023-01-01",
+                     maxDate = "2023-12-31",
                      minDate = "2010-01-01",
                      view = "months", 
                      minView = "months", 
@@ -78,8 +78,8 @@ airDatepickerInput("start_month",
 
 airDatepickerInput("end_month",
                      label = "End month",
-                     value = "2024-06-30",
-                     maxDate = "2024-06-30",
+                     value = "2023-12-31",
+                     maxDate = "2023-12-31",
                      minDate = "2010-01-01",
                      view = "months", 
                      minView = "months", 
@@ -167,6 +167,7 @@ Row
 ### Trend
 ```{r}
 output$timeline <- renderPlot({
+  validate(need(nrow(collisions())!=0, "There are no matches in the dataset. Choose other categories"))
   
 empty <-  tibble(date= seq(input$start_month, as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1), by = "1 months"))
 
@@ -357,8 +358,7 @@ plotOutput('demographics')
 About
 =====================================  
 
-This application allows users to explore road collisions involving personal injury that were reported in Greater Manchester between 2010 and June 2024
-. The data derive from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Transport for Greater Manchester</a> under an <a href="http://odata.tfgm.com/opendata/downloads/Licences/FreeToUseData_SubLicence_G_v12.pdf">OS "Free to Use Data" Licence</a> and from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Department from Transport</a> under an <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government License</a>.
+This application allows users to explore road collisions involving personal injury that were reported in Greater Manchester between 2010 and 2023. The data derive from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Transport for Greater Manchester</a> under an <a href="http://odata.tfgm.com/opendata/downloads/Licences/FreeToUseData_SubLicence_G_v12.pdf">OS "Free to Use Data" Licence</a> and from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Department from Transport</a> under an <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government License</a>.
 
 <script>
 $(document).ready(function(){
