@@ -14,9 +14,13 @@ runtime: shiny
 
 
 ```{r setup, include=FALSE}
-library(tidyverse) ; library(flexdashboard) ; library(shiny) ;  library(sf) ; library(leaflet) ;  library(scales) ; library(shinyWidgets) ; library(plotly)
+library(tidyverse) ; library(flexdashboard) ; library(shiny) ;  library(sf) ; library(leaflet) ;  library(scales) ; library(shinyWidgets) ; library(plotly) ; library(zoo)
 
-df <- read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19_road_casualties_2010-2021.csv") %>% 
+    
+  df <- read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19_road_casualties_2010-2021.csv") %>% 
+    mutate(AREFNO = as.character(AREFNO)) %>% 
+    filter(!year %in% c(2019,2020,2021)) %>%
+    bind_rows(read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19_road_casualties_2019-Jun2024.csv") ) %>%
   mutate(text = str_c("On ", format.Date(date, "%A %d %B %Y"), " at ", format(strptime(output_time,"%H:%M:%S"),'%H:%M'),
                       " a ", tolower(collision_severity), " collision occured involving ", 
                       number_vehicles, ifelse(number_vehicles == 1, " vehicle and ", " vehicles and "), number_casualties, 
@@ -24,28 +28,29 @@ df <- read_csv("https://www.trafforddatalab.io/open_data/road_casualties/STATS19
 
 boundaries <- st_read("data/gm_local_authority_generalised.geojson")
 
+
 ```
 
 ```{r reactive}
 casualties <- reactive({
   
-  if((is.null(input$borough) & is.null(input$mode) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month)}else 
-  if((is.null(input$borough) & is.null(input$mode))){filter(df, date >= input$start_month &  date <= input$end_month &
+  if((is.null(input$borough) & is.null(input$mode) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1))}else 
+  if((is.null(input$borough) & is.null(input$mode))){filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1) &
              casualty_severity %in% input$severity)}else 
-  if((is.null(input$borough) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month &
+  if((is.null(input$borough) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1) &
               mode %in% input$mode)}else 
-  if((is.null(input$mode) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month &
+  if((is.null(input$mode) & is.null(input$severity))){filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1) &
               area_name %in% input$borough)}else 
-  if((is.null(input$borough))){filter(df, date >= input$start_month &  date <= input$end_month &
+  if((is.null(input$borough))){filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1) &
               mode %in% input$mode &
               casualty_severity %in% input$severity)}else 
-  if((is.null(input$mode))){filter(df, date >= input$start_month &  date <= input$end_month &
+  if((is.null(input$mode))){filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1) &
             area_name %in% input$borough &
             casualty_severity %in% input$severity)}else 
-  if((is.null(input$severity))){filter(df, date >= input$start_month &  date <= input$end_month &
+  if((is.null(input$severity))){filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1) &
             area_name %in% input$borough &
             mode %in% input$mode)}else {
-    filter(df, date >= input$start_month &  date <= input$end_month &
+    filter(df, date >= input$start_month &  date <= as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1) &
              area_name %in% input$borough &
              mode %in% input$mode &
              casualty_severity %in% input$severity)
@@ -64,8 +69,8 @@ Filter {.sidebar data-width=200}
 
 airDatepickerInput("start_month",
                      label = "Start month",
-                     value = "2021-01-01",
-                     maxDate = "2021-12-31",
+                     value = "2024-01-01",
+                     maxDate = "2024-06-30",
                      minDate = "2010-01-01",
                      view = "months", 
                      minView = "months", 
@@ -73,8 +78,8 @@ airDatepickerInput("start_month",
 
 airDatepickerInput("end_month",
                      label = "End month",
-                     value = "2021-12-31",
-                     maxDate = "2021-12-31",
+                     value = "2024-06-30",
+                     maxDate = "2024-06-30",
                      minDate = "2010-01-01",
                      view = "months", 
                      minView = "months", 
@@ -163,7 +168,7 @@ Row
 ```{r}
 output$timeline <- renderPlot({
   
-empty <-  tibble(date= seq(input$start_month, input$end_month, by = "1 months"))
+empty <-  tibble(date= seq(input$start_month, as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1), by = "1 months"))
 
 temp <- casualties() %>%
   group_by(date = lubridate::floor_date(date, "month")) %>%
@@ -175,11 +180,13 @@ df <- left_join(empty, temp, by = "date") %>%
 ggplot(df, aes(x = date, y = value)) +
   geom_line(size = 1.5, color = "#0A3182") +
   geom_hline(yintercept = 0, size = 1, colour = "#333333") +
- scale_y_continuous(expand = c(0.005, 0.005), 
+ scale_y_continuous(expand = c(0.005, 0.005),
                      breaks = function(x) unique(floor(pretty(seq(0, (max(x) + 1) * 1.1)))), labels = comma) +
+  #scale_x_date(date_labels = "%b %y") +
   labs(x = NULL, y = NULL, fill = NULL,
        title = "Casualties", 
-       caption = paste0(format(input$start_month,"%h-%Y"), " to ", format(input$end_month,"%h-%Y")," Source: TfGM")) +
+       caption = paste0(format(input$start_month,"%h-%Y"), " to ", format(as.yearmon(paste(input$end_month)) %>% as.Date(ym, frac = 1),"%h-%Y")," Source: TfGM")
+       ) +
   theme_minimal(base_size = 10) +
   theme(plot.margin = unit(c(1,1,1,1), "cm"),
         panel.grid.major.x = element_blank(),
@@ -350,7 +357,8 @@ plotOutput('demographics')
 About
 =====================================  
 
-This application allows users to explore road collisions involving personal injury that were reported in Greater Manchester between 2010 and 2021. The data derive from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Transport for Greater Manchester</a> under an <a href="http://odata.tfgm.com/opendata/downloads/Licences/FreeToUseData_SubLicence_G_v12.pdf">OS "Free to Use Data" Licence</a>.
+This application allows users to explore road collisions involving personal injury that were reported in Greater Manchester between 2010 and June 2024
+. The data derive from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Transport for Greater Manchester</a> under an <a href="http://odata.tfgm.com/opendata/downloads/Licences/FreeToUseData_SubLicence_G_v12.pdf">OS "Free to Use Data" Licence</a> and from <a href="https://data.gov.uk/dataset/25170a92-0736-4090-baea-bf6add82d118/gm-road-casualty-accidents-full-stats19-data">Department from Transport</a> under an <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government License</a>.
 
 <script>
 $(document).ready(function(){
